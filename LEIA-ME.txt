@@ -1,20 +1,28 @@
-FINANÇAS DE RAFAEL E THAYNÁ — versão instalável (PWA)
+FINANÇAS DE RAFAEL E THAYNÁ, versão com banco de dados online (Supabase)
 
-Para instalar no celular, a pasta precisa estar publicada em HTTPS
-(o service worker e o PIN não funcionam abrindo o arquivo direto).
-Opção gratuita e simples: GitHub Pages ou Netlify Drop (arraste a pasta).
+ARQUIVOS PARA O GITHUB (envie todos, mantendo as pastas):
+  index.html, config.js, sw.js, manifest.json, js/ (chart.umd.js e supabase.js), icons/
+NÃO envie o setup.sql: ele tem os e-mails de vocês e só é usado no Supabase.
 
-1. Publique a pasta inteira.
-2. Abra o endereço no celular.
-   - iPhone (Safari): Compartilhar > Adicionar à Tela de Início.
-   - Android (Chrome): menu > Instalar app.
-3. Cada aparelho tem os próprios dados. Para juntar os dois:
-   Configurações > Fazer backup (num aparelho) > enviar o arquivo >
-   Configurações > Importar dados de outro aparelho (no outro).
+PASSO A PASSO
+1. supabase.com > crie uma conta > New project. Região: South America (São Paulo).
+   Guarde a senha do banco.
+2. SQL Editor > New query > cole o setup.sql, troque os 2 e-mails > Run.
+   Deve aparecer "Success. No rows returned".
+3. Authentication > Users > Add user > Create new user.
+   E-mail e senha do Rafael, marque "Auto Confirm User". Repita para a Thayná.
+4. Authentication > configurações de cadastro (Sign In / Providers):
+   desligue "Allow new users to sign up". Assim ninguém mais cria conta.
+5. Project Settings > API Keys: copie a Project URL e a chave anon/publishable
+   e cole no config.js.
+6. Envie os arquivos para o GitHub (substituindo os antigos). Espere 1 a 2 minutos.
+7. No celular: abra o app, feche e abra de novo (para pegar a versão nova), faça login.
+   Os lançamentos que já existiam no aparelho sobem sozinhos para a nuvem.
 
-Estrutura:
-  index.html      app completo (HTML, CSS e JS organizados por módulo)
-  manifest.json   nome, cores e ícones do app instalado
-  sw.js           cache offline
-  js/chart.umd.js Chart.js 4.4.1 local (gráficos funcionam offline)
-  icons/          ícones 192, 512 e maskable
+BOM SABER
+- Offline funciona: o que for lançado sem internet é enviado quando a conexão voltar.
+- Projeto gratuito do Supabase pausa após 7 dias sem nenhum acesso. Com uso diário
+  não acontece; se pausar, entre no painel e clique em "Restore" (os dados continuam lá).
+- O plano gratuito não faz cópia de segurança automática: use
+  Configurações > Fazer backup uma vez por mês.
+- Esqueceu a senha? No Supabase: Authentication > Users > (usuário) > redefinir senha.

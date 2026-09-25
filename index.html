@@ -297,6 +297,10 @@ input[type="date"].input,input[type="time"].input{min-width:0}
 .manage-sub span{display:inline-flex;align-items:center;gap:4px;background:var(--surface-2);border-radius:99px;padding:4px 6px 4px 12px;font-size:14px;min-height:34px}
 .manage-sub button{border:0;background:none;width:28px;height:28px;border-radius:50%;color:var(--ink-3)}
 
+.sync{display:inline-flex;align-items:center;gap:6px;font:700 12.5px var(--font-ui);color:var(--ink-2)}
+.sync::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ink-3)}
+.sync.ok::before{background:var(--in)} .sync.syncing::before{background:var(--brand)}
+.sync.pending::before,.sync.offline::before{background:var(--warn)} .sync.error::before{background:var(--out)}
 /* ============ DESKTOP ============ */
 @media (min-width:600px){
   .person-grid{grid-template-columns:repeat(3,1fr)}
@@ -334,6 +338,8 @@ input[type="date"].input,input[type="time"].input{min-width:0}
 <div id="overlay"></div>
 <input type="file" id="file-in" accept="application/json,.json" hidden>
 
+<script src="config.js"></script>
+<script src="js/supabase.js"></script>
 <script src="js/chart.umd.js"></script>
 <script>
 (function () {
@@ -485,11 +491,24 @@ function migrate(d) {
   return out;
 }
 
+function storageProbe() {
+  try { const k = 'financas-rt:probe', v = String(Date.now()); localStorage.setItem(k, v); const ok = localStorage.getItem(k) === v; localStorage.removeItem(k); return ok; }
+  catch (e) { return false; }
+}
+const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isHosted = () => window.self === window.top && /^https?:$/.test(location.protocol);
+const inAppBrowser = /FBAN|FBAV|Instagram|WhatsApp|Line\/|Telegram|TikTok/i.test(navigator.userAgent);
+
 let S = migrate(Store.read(DATA_KEY));
 let D = Object.assign(defaultDevice(), Store.read(DEVICE_KEY) || {});
 D.lastMethod = Object.assign({ income: 'Pix', expense: 'Pix' }, D.lastMethod || {});
 
-function persist() { S.updatedAt = U.nowISO(); return Store.write(DATA_KEY, S); }
+function persist() {
+  S.updatedAt = U.nowISO();
+  if (Cloud.on) return Cloud.user ? Cloud.commit() : false;
+  return Store.write(DATA_KEY, S);
+}
 function saveDevice() { return Store.write(DEVICE_KEY, D); }
 
 /* =========================================================
@@ -658,6 +677,7 @@ const Rec = {
     persist(); Rec.generate(); return r;
   },
   generate() {
+    if (Cloud.on && !Cloud.everSynced) return 0; // espera conhecer as exclusões do servidor
     const today = U.today(); let created = 0;
     const ids = new Set(S.transactions.map(t => t.id));
     for (const r of S.recurrences) {
@@ -925,7 +945,7 @@ function renderNav() {
     ${link('budgets', ICON.target, 'Orçamentos')}${link('recurrences', ICON.repeat, 'Recorrências')}${link('catmanage', ICON.tag, 'Gerenciar categorias')}
     ${link('settings', ICON.gear, 'Configurações')}
     <div style="flex:1"></div>
-    <div class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} Seus dados estão armazenados neste dispositivo.</div>`;
+    <div class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} ${dataNote()}</div>`;
 }
 
 function render() {
@@ -933,7 +953,7 @@ function render() {
   destroyCharts();
   const main = document.getElementById('main');
   const views = { home: viewHome, moves: viewMoves, cats: viewCats, more: viewMore, charts: viewCharts, calendar: viewCalendar, couple: viewCouple, budgets: viewBudgets, recurrences: viewRecurrences, catmanage: viewCatManage, settings: viewSettings };
-  main.innerHTML = `<div class="container">${(views[view] || viewHome)()}</div>`;
+  main.innerHTML = `<div class="container">${storageBanner()}${(views[view] || viewHome)()}</div>`;
   afterRender();
 }
 let afterFns = [];
@@ -943,7 +963,7 @@ function afterRender() { const fns = afterFns; afterFns = []; fns.forEach(f => {
 /* ---------- componentes ---------- */
 function userPill() {
   const u = D.currentUser || USERS[0];
-  return `<button class="userpill" data-act="switch-user" aria-label="Trocar pessoa"><span class="avatar av-${U.userKey(u)}">${U.esc(u[0])}</span>${U.esc(u)}</button>`;
+  return `<button class="userpill" data-act="${Cloud.on ? 'account' : 'switch-user'}" aria-label="${Cloud.on ? 'Conta' : 'Trocar pessoa'}"><span class="avatar av-${U.userKey(u)}">${U.esc(u[0])}</span>${U.esc(u)}</button>`;
 }
 function periodBar(opts = {}) {
   const r = range(); const ap = activePreset();
@@ -1075,20 +1095,27 @@ function viewHome() {
     <section><div class="panel-head"><h2 class="section-h" style="margin:0">Últimas movimentações</h2>${recent.length ? '<button class="link" data-act="nav" data-view="moves">Ver todas</button>' : ''}</div>
       ${recent.length ? txGrouped(recent, { showDayTotals: false }) : `<div class="panel empty"><b>${empty ? 'Comece pelo primeiro lançamento' : 'Nada por aqui neste período'}</b>${empty ? 'Toque em + para registrar uma entrada ou um gasto. Leva poucos segundos.' : 'Troque o período acima ou registre algo novo.'}</div>`}
     </section>
-    <div class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} Seus dados estão armazenados neste dispositivo.</div>`;
+    <div class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} ${dataNote()}</div>`;
 
-  return `<header class="topbar"><div class="brandline"><b>Finanças</b><h1>Olá, ${U.esc(D.currentUser || '')}</h1></div>
+  return `<header class="topbar"><div class="brandline"><b>Finanças</b><h1>Olá, ${U.esc(D.currentUser || '')}</h1>${syncBadge()}</div>
       <div class="row">${userPill()}<button class="icon-btn" data-act="toggle-theme" aria-label="Alternar modo claro/escuro">${isDark() ? ICON.sun : ICON.moon}</button></div></header>
     ${backupNag()}
     <div class="stack">${periodBar()}
       <div class="home-grid stack"><div class="stack">${left}</div><div class="stack">${right}</div></div></div>`;
 }
+function storageBanner() {
+  if (!storageOK) return `<div class="form-error" role="alert" style="margin-bottom:14px">Este navegador não está salvando os dados. O que você lançar agora será perdido ao fechar. Saia da navegação privada ou abra no Safari/Chrome. Veja Configurações > Diagnóstico de salvamento.</div>`;
+  if (inAppBrowser) return `<div class="form-error" role="alert" style="margin-bottom:14px">Você abriu o app dentro de outro aplicativo (WhatsApp, Instagram…). Esse navegador interno costuma apagar os dados. Abra o endereço no Safari ou no Chrome.</div>`;
+  if (isIOS && isHosted() && !isStandalone() && !D.iosTipOff) return `<div class="info" style="margin-bottom:14px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between"><span>No iPhone, o Safari e o ícone da tela inicial guardam dados <b>separados</b>, e o Safari pode apagá-los após alguns dias sem uso. Instale (Compartilhar > Adicionar à Tela de Início) e lance sempre pelo ícone.</span><button class="icon-btn" style="flex:none" data-act="ios-tip-off" aria-label="Dispensar aviso">${ICON.x}</button></div>`;
+  return '';
+}
 function backupNag() {
   if (!S.transactions.length) return '';
   const last = D.lastBackup ? new Date(D.lastBackup) : null;
   const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
-  if (days !== null && days < 14) return '';
-  return `<div class="info" style="margin-bottom:14px;display:flex;gap:10px;align-items:center;justify-content:space-between"><span>${days === null ? 'Você ainda não fez nenhum backup.' : `Último backup há ${days} dias.`} Os dados vivem só neste aparelho.</span><button class="btn btn-primary" style="min-height:40px;flex:none" data-act="backup">Fazer backup</button></div>`;
+  const limit = Cloud.on ? 30 : 14;
+  if (days !== null && days < limit) return '';
+  return `<div class="info" style="margin-bottom:14px;display:flex;gap:10px;align-items:center;justify-content:space-between"><span>${days === null ? 'Você ainda não fez nenhum backup.' : `Último backup há ${days} dias.`} ${Cloud.on ? 'O plano gratuito do Supabase não guarda cópias de segurança: faça um backup por mês.' : 'Os dados vivem só neste aparelho.'}</span><button class="btn btn-primary" style="min-height:40px;flex:none" data-act="backup">Fazer backup</button></div>`;
 }
 
 /* =========================================================
@@ -1179,7 +1206,7 @@ function viewMore() {
       ${item('catmanage', ICON.tag, 'Gerenciar categorias', 'Criar e remover categorias personalizadas')}
       ${item('settings', ICON.gear, 'Configurações', 'Backup, exportação, PIN e tema')}
     </div>
-    <div class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} Seus dados estão armazenados neste dispositivo.</div>
+    <div class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} ${dataNote()}</div>
   </div>`;
 }
 
@@ -1445,8 +1472,15 @@ function viewSettings() {
   const tb = (v, l) => `<button data-act="theme" data-v="${v}" aria-pressed="${D.theme === v}">${l}</button>`;
   return `<header class="topbar"><div>${subHeader('Configurações')}</div></header>
   <div class="stack">
+    ${Cloud.on ? `<section class="panel stack"><h2 style="margin:0">Conta e sincronização</h2>
+      <dl class="dl"><dt>Conectado como</dt><dd>${U.esc(D.currentUser)}<br><span class="small muted">${U.esc(Cloud.email)}</span></dd>
+        <dt>Situação</dt><dd>${syncBadge()}</dd><dt>Última sincronização</dt><dd>${Cloud.lastSync ? new Date(Cloud.lastSync).toLocaleString('pt-BR') : 'ainda não'}</dd></dl>
+      ${Cloud.error ? `<div class="form-error">${U.esc(Cloud.error)}</div>` : ''}
+      <div class="actions"><button class="btn btn-line" data-act="sync-now">Sincronizar agora</button><button class="btn btn-danger" data-act="logout">Sair da conta</button></div>
+      ${EMAILS_SET ? '' : `<button class="link" style="align-self:flex-start" data-act="cloud-rename">Não é ${U.esc(D.currentUser)}? Trocar o nome desta conta</button>`}
+    </section>` : ''}
     <section class="panel stack"><h2 style="margin:0">Neste aparelho</h2>
-      <div class="row between wrap"><span>Quem usa este aparelho</span>${userPill()}</div>
+      ${Cloud.on ? '' : `<div class="row between wrap"><span>Quem usa este aparelho</span>${userPill()}</div>`}
       <div><p class="fl">Aparência</p><div class="seg">${tb('auto', 'Automático')}${tb('light', 'Claro')}${tb('dark', 'Escuro')}</div></div>
       <div class="row between wrap"><span><b>Bloqueio com PIN</b><br><span class="small muted">${D.pin ? `Ativo, ${D.pin.len} dígitos` : 'Desativado'}</span></span>
         <span class="row">${D.pin ? '<button class="btn btn-line" data-act="pin-set">Alterar</button><button class="btn btn-danger" data-act="pin-off">Remover</button>' : '<button class="btn btn-primary" data-act="pin-set">Ativar PIN</button>'}</span></div>
@@ -1456,16 +1490,21 @@ function viewSettings() {
       <p class="small muted" style="margin:0">${D.lastBackup ? 'Último backup: ' + new Date(D.lastBackup).toLocaleString('pt-BR') : 'Nenhum backup feito neste aparelho.'} ${S.transactions.length} lançamentos salvos.</p>
       <div class="actions"><button class="btn btn-primary" data-act="backup">Fazer backup</button><button class="btn btn-line" data-act="restore">Restaurar backup</button>
         <button class="btn btn-line" data-act="export-csv">Exportar CSV</button><button class="btn btn-line" data-act="export-json">Exportar JSON</button></div>
-      <button class="btn btn-line btn-block" data-act="import">Importar dados de outro aparelho</button>
-      <p class="small muted" style="margin:0"><b>Restaurar</b> substitui tudo pelo conteúdo do backup. <b>Importar</b> junta os dados: mantém a versão mais recente de cada lançamento e aplica as exclusões feitas no outro aparelho. É o jeito de os dois celulares ficarem iguais.</p>
+      <button class="btn btn-line btn-block" data-act="import">${Cloud.on ? 'Importar backup (juntar com os dados atuais)' : 'Importar dados de outro aparelho'}</button>
+      <p class="small muted" style="margin:0"><b>Restaurar</b> substitui tudo pelo conteúdo do backup${Cloud.on ? ', para vocês dois' : ''}. <b>Importar</b> junta os dados: mantém a versão mais recente de cada lançamento e aplica as exclusões registradas no backup.${Cloud.on ? ' Use para trazer lançamentos feitos antes da nuvem.' : ' É o jeito de os dois celulares ficarem iguais.'}</p>
+    </section>
+    <section class="panel stack"><h2 style="margin:0">Diagnóstico de salvamento</h2>
+      <p class="small muted" style="margin:0">Toque em Testar, feche o app por completo e abra de novo. Se "Lançamentos gravados" voltar a zero, é o navegador que está apagando os dados.</p>
+      <button class="btn btn-line btn-block" data-act="diag">Testar salvamento</button>
+      <div id="diag"></div>
     </section>
     <section class="panel stack"><h2 style="margin:0">Dados de demonstração</h2>
-      <p class="small muted" style="margin:0">Carrega lançamentos fictícios, marcados como demonstração, para testar as telas. Eles podem ser removidos sem afetar os seus.</p>
+      <p class="small muted" style="margin:0">Carrega lançamentos fictícios, marcados como demonstração, para testar as telas${Cloud.on ? ' (aparecem para vocês dois)' : ''}. Eles podem ser removidos sem afetar os seus.</p>
       ${demo ? `<button class="btn btn-line btn-block" data-act="demo-off">Remover dados de demonstração (${demo})</button>` : '<button class="btn btn-line btn-block" data-act="demo-on">Carregar dados de demonstração</button>'}
     </section>
     <section class="panel stack"><h2 style="margin:0">Zona de risco</h2>
       <button class="btn btn-danger btn-block" data-act="wipe">Apagar todos os dados</button></section>
-    <div class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} Seus dados estão armazenados neste dispositivo${storageOK ? '' : ' (atenção: o navegador está recusando o salvamento)'}.</div>
+    <div class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} ${dataNote().replace(/\.$/, '')}${storageOK ? '' : ' (atenção: o navegador está recusando o salvamento local)'}.</div>
   </div>`;
 }
 
@@ -1744,7 +1783,7 @@ async function onFile(file) {
   const p = parseBackup(text);
   if (p.error) { toast(p.error); return; }
   if (fileMode === 'restore') {
-    const v = await ask({ title: 'Restaurar backup', message: `Substituir todos os dados atuais (${S.transactions.length} lançamentos) pelos ${p.data.transactions.length} lançamentos do backup?`, actions: [{ label: 'Substituir tudo', value: 'yes', danger: true }] });
+    const v = await ask({ title: 'Restaurar backup', message: `Substituir todos os dados atuais (${S.transactions.length} lançamentos) pelos ${p.data.transactions.length} lançamentos do backup?${Cloud.on ? ' A troca vale para vocês dois.' : ''}`, actions: [{ label: 'Substituir tudo', value: 'yes', danger: true }] });
     if (!v) return;
     S = p.data; Rec.generate(); persist(); render(); toast('Backup restaurado');
   } else {
@@ -1847,13 +1886,13 @@ function openPinSetup() {
    BOAS-VINDAS / PESSOA
    ========================================================= */
 function checkWelcome() {
-  if (locked) return;
+  if (locked || Cloud.on) return;
   if (D.currentUser && USERS.includes(D.currentUser)) return;
   document.getElementById('overlay').innerHTML = `<div class="overlay" role="dialog" aria-modal="true" aria-label="Escolha quem está usando"><div class="overlay-inner">
     <h1>Quem está usando este aparelho?</h1>
     <p class="muted" style="margin:0">Os lançamentos feitos aqui já vêm com o seu nome. Dá para trocar a qualquer momento.</p>
     <div class="who-pick">${USERS.map(u => `<button data-act="pick-user" data-v="${u}"><span class="avatar av-${U.userKey(u)}">${u[0]}</span>${u}</button>`).join('')}</div>
-    <p class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} Seus dados estão armazenados neste dispositivo.</p>
+    <p class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} ${dataNote()}</p>
   </div></div>`;
 }
 
@@ -1867,6 +1906,30 @@ function applyTheme() {
   const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', isDark() ? '#0E1219' : '#2C44B8');
 }
 
+async function runDiagnostics() {
+  const el = document.getElementById('diag'); if (!el) return;
+  el.innerHTML = '<p class="muted" style="margin:0">Testando…</p>';
+  const ok = storageProbe(); storageOK = ok;
+  let raw = null; try { raw = JSON.parse(localStorage.getItem(DATA_KEY) || 'null'); } catch (e) {}
+  const stored = raw && Array.isArray(raw.transactions) ? raw.transactions.length : 0;
+  let persisted = 'não informado', space = 'não informado';
+  try { if (navigator.storage && navigator.storage.persisted) persisted = (await navigator.storage.persisted()) ? 'Sim' : 'Não (o navegador pode limpar quando faltar espaço ou após dias sem uso)'; } catch (e) {}
+  try { if (navigator.storage && navigator.storage.estimate) { const e = await navigator.storage.estimate(); space = (e.usage / 1024).toFixed(0) + ' KB usados'; } } catch (e) {}
+  const mode = isStandalone() ? 'App instalado (ícone da tela inicial)' : inAppBrowser ? 'Navegador interno de outro app (não recomendado)' : 'Navegador comum';
+  const row = (k, v, bad) => `<dt>${k}</dt><dd${bad ? ' class="neg"' : ''}>${v}</dd>`;
+  el.innerHTML = `<dl class="dl">
+    ${row('Salvamento', ok ? 'Funcionando' : 'Bloqueado pelo navegador', !ok)}
+    ${Cloud.on ? row('Lançamentos (nuvem + cópia local)', String(S.transactions.length)) : row('Lançamentos gravados', stored + (stored !== S.transactions.length ? ` (na tela: ${S.transactions.length})` : ''), stored !== S.transactions.length)}
+    ${row('Última gravação', raw && raw.updatedAt ? new Date(raw.updatedAt).toLocaleString('pt-BR') : 'nenhuma')}
+    ${Cloud.on ? row('Nuvem', Cloud.statusInfo()[1], Cloud.statusInfo()[0] === 'error') + row('Alterações a enviar', String(Object.keys(Cloud.pending).length)) : ''}
+    ${row('Aberto como', mode, inAppBrowser)}
+    ${row('Endereço', U.esc(location.host + location.pathname))}
+    ${row('Proteção contra limpeza', persisted)}
+    ${row('Espaço', space)}
+    ${row('Teste feito em', new Date().toLocaleString('pt-BR'))}
+  </dl>
+  <p class="small muted" style="margin:0">Os dados valem só para este endereço e este modo de abertura. No iPhone, Safari e ícone da tela inicial são armazenamentos diferentes.</p>`;
+}
 function openCustomPeriod() {
   const r = range();
   openSheet({
@@ -1974,7 +2037,7 @@ const A = {
   'demo-on': () => loadDemo(),
   'demo-off': () => removeDemo(),
   'wipe': async () => {
-    const v1 = await ask({ title: 'Apagar todos os dados', message: `Isso remove ${S.transactions.length} lançamentos, categorias personalizadas, orçamentos e recorrências deste aparelho.`, actions: [{ label: 'Fazer backup antes', value: 'backup', primary: true }, { label: 'Continuar sem backup', value: 'go', danger: true }] });
+    const v1 = await ask({ title: 'Apagar todos os dados', message: `Isso remove ${S.transactions.length} lançamentos, categorias personalizadas, orçamentos e recorrências ${Cloud.on ? 'da nuvem, para Rafael e Thayná, em todos os aparelhos' : 'deste aparelho'}.`, actions: [{ label: 'Fazer backup antes', value: 'backup', primary: true }, { label: 'Continuar sem backup', value: 'go', danger: true }] });
     if (v1 === 'backup') { await doBackup(); return; }
     if (v1 !== 'go') return;
     openSheet({ title: 'Confirmação final', body: '<p style="margin:0">Digite <b>APAGAR</b> para confirmar. Não há como desfazer.</p><input class="input" id="wipe-in" autocomplete="off" autocapitalize="characters"><div id="wipe-err"></div>', foot: '<button class="btn btn-danger btn-block" data-act="wipe-go">Apagar tudo</button>' });
@@ -1984,6 +2047,17 @@ const A = {
     if (w.querySelector('#wipe-in').value.trim().toUpperCase() !== 'APAGAR') { w.querySelector('#wipe-err').innerHTML = '<div class="form-error">Digite APAGAR exatamente.</div>'; return; }
     S = defaultData(); persist(); closeAllSheets(); render(); toast('Todos os dados foram apagados');
   },
+  'account': () => go('settings'),
+  'cloud-pick': el => { if (!pendingUser) return; D.people = Object.assign({}, D.people, { [pendingUser.id]: el.dataset.v }); saveDevice(); const u = pendingUser; pendingUser = null; Cloud.login(u); },
+  'cloud-rename': () => { if (!Cloud.user) return; const people = Object.assign({}, D.people); delete people[Cloud.user.id]; D.people = people; saveDevice(); pickPerson(Cloud.user); },
+  'sync-now': async () => { await Cloud.pull(); await Cloud.push(); render(); toast(Cloud.error || 'Sincronizado'); },
+  'logout': async () => {
+    const n = Object.keys(Cloud.pending).length;
+    const v = await ask({ title: 'Sair da conta', message: n ? `Há ${n} alterações ainda não enviadas. Conecte-se à internet antes de sair, ou elas serão perdidas.` : 'Os dados continuam na nuvem. A cópia deste aparelho é apagada e volta quando você entrar de novo.', actions: [{ label: 'Sair', value: 'yes', danger: true }] });
+    if (v) Cloud.logout();
+  },
+  'ios-tip-off': () => { D.iosTipOff = true; saveDevice(); render(); },
+  'diag': () => runDiagnostics(),
   'pin-set': () => openPinSetup(),
   'pin-len': el => { const w = topSheet().wrap; w.dataset.len = el.dataset.v; w.querySelectorAll('[data-act="pin-len"]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === el.dataset.v)); w.querySelectorAll('#pin-a,#pin-b').forEach(i => { i.maxLength = Number(el.dataset.v); i.value = ''; }); },
   'pin-save': async () => {
@@ -2006,6 +2080,7 @@ function focusDesc() { setTimeout(() => { const s = topSheet(); const d = s && s
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   if (locked && !['pin-key', 'pin-back', 'pin-forgot'].includes(el.dataset.act)) return;
+  if (Cloud.loginShown) return;
   const fn = A[el.dataset.act]; if (fn) { e.preventDefault(); fn(el, e); }
 });
 document.addEventListener('input', e => {
@@ -2054,13 +2129,262 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) hiddenAt = Date.now();
   else {
     if (D.pin && hiddenAt && Date.now() - hiddenAt > 60000) showLock();
-    if (Rec.generate()) render();
+    if (Cloud.on) { if (Cloud.user) Cloud.pull().then(() => { if (Rec.generate()) render(); Cloud.push(); }); }
+    else if (Rec.generate()) render();
   }
 });
 window.addEventListener('storage', e => {
+  if (Cloud.on) return;
   if (e.key === DATA_KEY) { S = migrate(Store.read(DATA_KEY)); if (!sheets.length) render(); }
 });
 if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (D.theme === 'auto') { applyTheme(); render(); } });
+
+/* =========================================================
+   NUVEM (Supabase): login, banco compartilhado e sincronização
+   Cada lançamento, recorrência e a configuração viram uma linha
+   na tabela "docs". O app guarda uma cópia local (funciona offline)
+   e envia/recebe só o que mudou.
+   ========================================================= */
+const CFG = window.FINANCAS_CONFIG || null;
+const CFG_INCOMPLETE = !!CFG && (!CFG.supabaseUrl || !CFG.supabaseAnonKey || /SEU-PROJETO/i.test(CFG.supabaseUrl) || /COLE-A-CHAVE/i.test(CFG.supabaseAnonKey));
+const DEL = '~';
+function stable(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v === undefined ? null : v);
+  if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+  return '{' + Object.keys(v).filter(k => v[k] !== undefined).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}';
+}
+function hash53(str) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) { const ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+const fp = v => hash53(stable(v));
+const clone = v => JSON.parse(JSON.stringify(v));
+function configOf(s) { return { categories: s.categories, budgets: s.budgets, monthlyBudget: s.monthlyBudget, budgetsUpdatedAt: s.budgetsUpdatedAt || null }; }
+const EMAILS_SET = !!(CFG && CFG.emails && Object.values(CFG.emails).some(v => v && !/exemplo/i.test(v)));
+function nameForEmail(email) {
+  if (!EMAILS_SET) return null;
+  const e = String(email || '').toLowerCase().trim(); const map = (CFG && CFG.emails) || {};
+  return USERS.find(u => e && String(map[u] || '').toLowerCase().trim() === e) || null;
+}
+function validRec(r) { return r && typeof r.id === 'string' && FREQS[r.frequency] && r.template && typeof r.startDate === 'string'; }
+function mergeCategories(remote, local) {
+  const out = clone(remote || { expense: [], income: [] }); out.expense = out.expense || []; out.income = out.income || [];
+  for (const type of ['expense', 'income']) for (const c of (local && local[type]) || []) {
+    const m = out[type].find(x => U.norm(x.name) === U.norm(c.name));
+    if (!m) { if (c.custom) out[type].push(c); continue; }
+    if (type === 'expense') for (const sb of c.subs || []) if (!(m.subs || []).some(x => U.norm(x) === U.norm(sb))) { m.subs = [...(m.subs || []), sb]; if ((c.customSubs || []).includes(sb)) m.customSubs = [...(m.customSubs || []), sb]; }
+  }
+  return out;
+}
+function dataNote() { return Cloud.on ? 'Dados salvos na nuvem e compartilhados entre Rafael e Thayná.' : 'Seus dados estão armazenados neste dispositivo.'; }
+function syncBadge() { if (!Cloud.on) return ''; const [c, l] = Cloud.statusInfo(); return `<span class="sync ${c}" data-sync>${U.esc(l)}</span>`; }
+
+const Cloud = {
+  on: false, client: null, user: null, email: '', known: new Map(), pending: {}, cursor: null, everSynced: false,
+  state: 'ok', error: '', lastSync: null, pushing: false, pulling: false, tPush: null, tPull: null, loginShown: false, deferred: false,
+  key() { return 'financas-rt:cloud:' + Cloud.user.id; },
+  saveCache() { if (Cloud.user) Store.write(Cloud.key(), { S, known: [...Cloud.known], pending: Cloud.pending, cursor: Cloud.cursor, everSynced: Cloud.everSynced, lastSync: Cloud.lastSync }); },
+  loadCache() {
+    const c = Store.read(Cloud.key()); if (!c || !c.S) return false;
+    S = migrate(c.S); Cloud.known = new Map(c.known || []); Cloud.pending = c.pending || {}; Cloud.cursor = c.cursor || null; Cloud.everSynced = !!c.everSynced; Cloud.lastSync = c.lastSync || null;
+    return true;
+  },
+  msg(e) {
+    const m = String((e && (e.message || e.error_description || e.msg)) || e || '');
+    if (/invalid login credentials/i.test(m)) return 'E-mail ou senha incorretos.';
+    if (/email not confirmed/i.test(m)) return 'E-mail não confirmado. No Supabase, crie o usuário marcando "Auto Confirm User".';
+    if (/row-level security|permission denied|42501/i.test(m)) return 'Sem permissão no banco. Confira se os e-mails do script SQL são os mesmos do config.js.';
+    if (/relation .*docs.* does not exist|42P01|Could not find the table/i.test(m)) return 'A tabela "docs" não existe. Rode o script SQL no Supabase.';
+    if (/jwt|token/i.test(m)) return 'Sessão expirada. Saia e entre de novo.';
+    if (/failed to fetch|network|load failed/i.test(m)) return 'Sem conexão com o servidor. As alterações ficam guardadas e serão enviadas depois.';
+    return m || 'Erro desconhecido ao sincronizar.';
+  },
+  statusInfo() {
+    const n = Object.keys(Cloud.pending).length;
+    if (Cloud.error && !/Sem conexão/.test(Cloud.error)) return ['error', 'Erro ao sincronizar'];
+    if (!navigator.onLine || Cloud.error) return ['offline', n ? `Offline, ${n} para enviar` : 'Offline'];
+    if (Cloud.pushing || Cloud.pulling) return ['syncing', 'Sincronizando…'];
+    if (n) return ['pending', `${n} para enviar`];
+    return ['ok', 'Sincronizado'];
+  },
+  paintStatus() { const [c, l] = Cloud.statusInfo(); document.querySelectorAll('[data-sync]').forEach(el => { el.className = 'sync ' + c; el.textContent = l; }); },
+  /** Chamado por persist(): descobre o que mudou desde a última sincronização e enfileira. */
+  commit() {
+    const cur = new Map();
+    for (const t of S.transactions) cur.set('tx_' + t.id, ['tx', t]);
+    for (const r of S.recurrences) cur.set('rec_' + r.id, ['rec', r]);
+    cur.set('config', ['config', configOf(S)]);
+    for (const [id, [kind, data]] of cur) {
+      const f = fp(data);
+      if (Cloud.known.get(id) !== f) { Cloud.pending[id] = { id, kind, data: clone(data), deleted: false, f }; Cloud.known.set(id, f); }
+    }
+    for (const [id, f] of Cloud.known) {
+      if (f !== DEL && !cur.has(id) && id !== 'config') { Cloud.pending[id] = { id, kind: id.startsWith('tx_') ? 'tx' : 'rec', data: {}, deleted: true, f: DEL }; Cloud.known.set(id, DEL); }
+    }
+    Cloud.saveCache(); Cloud.paintStatus(); Cloud.schedulePush();
+    return true;
+  },
+  schedulePush(ms = 400) { clearTimeout(Cloud.tPush); Cloud.tPush = setTimeout(() => Cloud.push(), ms); },
+  schedulePull(ms = 400) { clearTimeout(Cloud.tPull); Cloud.tPull = setTimeout(() => Cloud.pull(), ms); },
+  async push() {
+    if (!Cloud.user || Cloud.pushing || !Cloud.everSynced) return;
+    const entries = Object.values(Cloud.pending);
+    if (!entries.length) { Cloud.paintStatus(); return; }
+    Cloud.pushing = true; Cloud.paintStatus();
+    try {
+      for (let i = 0; i < entries.length; i += 300) {
+        const chunk = entries.slice(i, i + 300);
+        const { error } = await Cloud.client.from('docs').upsert(chunk.map(e => ({ id: e.id, kind: e.kind, data: e.data, deleted: e.deleted })), { onConflict: 'id' });
+        if (error) throw error;
+        for (const e of chunk) if (Cloud.pending[e.id] && Cloud.pending[e.id].f === e.f) delete Cloud.pending[e.id];
+      }
+      Cloud.error = ''; Cloud.lastSync = U.nowISO();
+    } catch (e) { Cloud.error = Cloud.msg(e); }
+    Cloud.pushing = false; Cloud.saveCache(); Cloud.paintStatus();
+    if (Object.keys(Cloud.pending).length && !Cloud.error) Cloud.schedulePush(1000);
+  },
+  async pull() {
+    if (!Cloud.user || Cloud.pulling) return false;
+    Cloud.pulling = true; Cloud.paintStatus(); let ok = false;
+    try {
+      // 5 min de sobreposição: cobre gravações que terminaram fora de ordem
+      const since = Cloud.cursor ? new Date(Date.parse(Cloud.cursor) - 300000).toISOString() : '1970-01-01T00:00:00Z';
+      let rows = [], from = 0, page;
+      do {
+        const { data, error } = await Cloud.client.from('docs').select('id,kind,data,deleted,updated_at').gt('updated_at', since).order('updated_at', { ascending: true }).order('id', { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        page = data || []; rows = rows.concat(page); from += 1000;
+      } while (page.length === 1000);
+      const first = !Cloud.everSynced;
+      const changed = Cloud.apply(rows, first);
+      for (const r of rows) if (!Cloud.cursor || Date.parse(r.updated_at) > Date.parse(Cloud.cursor)) Cloud.cursor = r.updated_at;
+      Cloud.everSynced = true; Cloud.error = ''; Cloud.lastSync = U.nowISO(); ok = true;
+      Cloud.saveCache();
+      if (first) { Rec.generate(); persist(); }
+      if (changed || first) Cloud.remoteRender();
+    } catch (e) { Cloud.error = Cloud.msg(e); }
+    Cloud.pulling = false; Cloud.paintStatus();
+    return ok;
+  },
+  apply(rows, first) {
+    if (!rows.length) return false;
+    const txIdx = new Map(S.transactions.map((t, i) => [t.id, i]));
+    const recIdx = new Map(S.recurrences.map((r, i) => [r.id, i]));
+    const rmTx = new Set(), rmRec = new Set(); let changed = false;
+    for (const row of rows) {
+      if (Cloud.pending[row.id]) continue; // alteração local ainda não enviada tem prioridade
+      const f = row.deleted ? DEL : fp(row.data);
+      if (Cloud.known.get(row.id) === f) continue;
+      changed = true; Cloud.known.set(row.id, f);
+      if (row.kind === 'config') {
+        if (row.deleted || !row.data) continue;
+        const cats = first ? mergeCategories(row.data.categories, S.categories) : row.data.categories;
+        S.categories = migrate({ categories: cats }).categories;
+        S.budgets = row.data.budgets || {}; S.monthlyBudget = Number(row.data.monthlyBudget) || 0; S.budgetsUpdatedAt = row.data.budgetsUpdatedAt || null;
+        if (first) Cloud.known.set('config', ''); // força reenviar a mescla de categorias
+        continue;
+      }
+      if (row.kind === 'tx') {
+        const id = row.id.slice(3);
+        if (row.deleted) { rmTx.add(id); S.deleted[id] = row.updated_at; }
+        else if (validTx(row.data)) {
+          rmTx.delete(id); delete S.deleted[id];
+          if (txIdx.has(id)) S.transactions[txIdx.get(id)] = row.data; else { txIdx.set(id, S.transactions.length); S.transactions.push(row.data); }
+        }
+      } else if (row.kind === 'rec') {
+        const id = row.id.slice(4);
+        if (row.deleted) rmRec.add(id);
+        else if (validRec(row.data)) { rmRec.delete(id); if (recIdx.has(id)) S.recurrences[recIdx.get(id)] = row.data; else { recIdx.set(id, S.recurrences.length); S.recurrences.push(row.data); } }
+      }
+    }
+    if (rmTx.size) S.transactions = S.transactions.filter(t => !rmTx.has(t.id));
+    if (rmRec.size) S.recurrences = S.recurrences.filter(r => !rmRec.has(r.id));
+    return changed;
+  },
+  remoteRender: U.debounce(() => {
+    const a = document.activeElement;
+    if (a && a.closest && a.closest('#main') && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) { if (view === 'moves') refreshMoves(); Cloud.deferred = true; return; }
+    Cloud.deferred = false; render();
+  }, 250),
+  async start() {
+    Cloud.on = true;
+    Cloud.client = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'financas-rt-auth' } });
+    let session = null;
+    try { const { data } = await Cloud.client.auth.getSession(); session = data && data.session; } catch (e) {}
+    if (session && session.user) await Cloud.login(session.user); else showLogin();
+    window.addEventListener('online', () => { Cloud.error = ''; Cloud.pull().then(() => Cloud.push()); });
+    window.addEventListener('offline', () => Cloud.paintStatus());
+    setInterval(() => { if (Cloud.user && !document.hidden) { Cloud.pull().then(() => Cloud.push()); } }, 60000);
+    document.getElementById('main').addEventListener('focusout', () => setTimeout(() => { if (Cloud.deferred) Cloud.remoteRender(); }, 50));
+  },
+  async login(user) {
+    const name = nameForEmail(user.email) || (D.people && D.people[user.id]);
+    if (!name && EMAILS_SET) { try { await Cloud.client.auth.signOut(); } catch (e) {} showLogin('Este e-mail não está autorizado. Confira o config.js.'); return; }
+    if (!name) { pickPerson(user); return; }
+    Cloud.user = user; Cloud.email = user.email; D.currentUser = name; saveDevice();
+    if (!Cloud.loadCache()) {
+      // primeira vez nesta conta neste aparelho: aproveita o que já existia no modo local
+      S = migrate(Store.read(DATA_KEY)); Cloud.known = new Map(); Cloud.pending = {}; Cloud.cursor = null; Cloud.everSynced = false;
+    }
+    Cloud.loginShown = false; document.getElementById('overlay').innerHTML = '';
+    render();
+    if (D.pin) showLock();
+    try { Cloud.client.channel('docs-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'docs' }, () => Cloud.schedulePull(300)).subscribe(); } catch (e) {}
+    await Cloud.pull(); await Cloud.push();
+  },
+  async logout() {
+    try { await Cloud.client.auth.signOut(); } catch (e) {}
+    try { localStorage.removeItem(Cloud.key()); } catch (e) {}
+    location.reload();
+  }
+};
+
+function showLogin(msg = '') {
+  Cloud.loginShown = true;
+  document.getElementById('overlay').innerHTML = `<div class="overlay" role="dialog" aria-modal="true" aria-label="Entrar"><form class="overlay-inner" id="login-form" novalidate>
+    <h1>Finanças</h1>
+    <p class="muted" style="margin:0">Entre para ver e registrar as finanças do casal.</p>
+    <label class="f" style="text-align:left">E-mail<input class="input" id="lg-email" type="email" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false"></label>
+    <label class="f" style="text-align:left">Senha<input class="input" id="lg-pass" type="password" autocomplete="current-password"></label>
+    <div id="lg-err">${msg ? `<div class="form-error" role="alert">${U.esc(msg)}</div>` : ''}</div>
+    <button class="btn btn-primary btn-block" type="submit" id="lg-btn">Entrar</button>
+    <p class="small muted" style="margin:0">Não há cadastro público. As contas de Rafael e Thayná são criadas no painel do Supabase.</p>
+  </form></div>`;
+}
+async function doLogin() {
+  const w = document.getElementById('login-form'); if (!w) return;
+  const email = w.querySelector('#lg-email').value.trim(), pass = w.querySelector('#lg-pass').value;
+  const btn = w.querySelector('#lg-btn');
+  const show = m => { w.querySelector('#lg-err').innerHTML = `<div class="form-error" role="alert">${U.esc(m)}</div>`; };
+  if (!email || !pass) return show('Informe o e-mail e a senha.');
+  if (EMAILS_SET && !nameForEmail(email)) return show('Este e-mail não está na lista do app (config.js).');
+  btn.disabled = true; btn.textContent = 'Entrando…';
+  try {
+    const { data, error } = await Cloud.client.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+    await Cloud.login(data.user);
+  } catch (e) { show(Cloud.msg(e)); btn.disabled = false; btn.textContent = 'Entrar'; }
+}
+document.addEventListener('submit', e => { if (e.target && e.target.id === 'login-form') { e.preventDefault(); doLogin(); } });
+let pendingUser = null;
+function pickPerson(user) {
+  pendingUser = user; Cloud.loginShown = false;
+  document.getElementById('overlay').innerHTML = `<div class="overlay" role="dialog" aria-modal="true" aria-label="Quem é você"><div class="overlay-inner">
+    <h1>Quem é você?</h1>
+    <p class="muted" style="margin:0">Conectado como ${U.esc(user.email)}. Os seus lançamentos vão sair com este nome. A pergunta aparece só uma vez neste aparelho.</p>
+    <div class="who-pick">${USERS.map(u => `<button data-act="cloud-pick" data-v="${u}"><span class="avatar av-${U.userKey(u)}">${u[0]}</span>${u}</button>`).join('')}</div>
+  </div></div>`;
+}
+function showSetup() {
+  document.getElementById('overlay').innerHTML = `<div class="overlay"><div class="overlay-inner" style="text-align:left">
+    <h1>Falta configurar</h1>
+    <p style="margin:0">${window.supabase ? 'O arquivo <b>config.js</b> ainda está com os valores de exemplo.' : 'A biblioteca do Supabase (js/supabase.js) não carregou. Confira se a pasta js foi enviada completa.'}</p>
+    <p class="muted" style="margin:0">Abra o config.js no GitHub, cole a URL e a chave do projeto Supabase e os e-mails de Rafael e Thayná, salve e recarregue esta página.</p>
+  </div></div>`;
+}
 
 /* =========================================================
    INICIALIZAÇÃO + PWA
@@ -2074,16 +2398,22 @@ function initPWA() {
 }
 function init() {
   applyTheme();
+  storageOK = storageProbe();
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+  initPWA();
+  if (CFG) {
+    if (CFG_INCOMPLETE || !window.supabase) { showSetup(); return; }
+    Cloud.start();
+    return;
+  }
   Rec.generate();
   if (!Store.read(DATA_KEY)) persist();
   render();
   if (D.pin) showLock(); else checkWelcome();
-  initPWA();
 }
 
 // API interna exposta para testes e depuração
-window.FinApp = { get S() { return S; }, get D() { return D; }, U, Tx, Cat, Rec, Calc, Budget, Period, range, filterTx, searchTx, mergeData, exportJSON, exportCSV, parseBackup, render, go, setPreset, shiftPeriod, persist };
+window.FinApp = { get S() { return S; }, get D() { return D; }, Cloud, U, Tx, Cat, Rec, Calc, Budget, Period, range, filterTx, searchTx, mergeData, exportJSON, exportCSV, parseBackup, render, go, setPreset, shiftPeriod, persist };
 init();
 })();
 </script>

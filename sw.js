@@ -1,5 +1,5 @@
 /* Service worker: guarda o app para abrir offline. Os dados ficam no Supabase + cópia local do app. */
-const CACHE = 'financas-rt-v3';
+const CACHE = 'financas-rt-v4';
 const SHELL = ['./', './index.html', './manifest.json', './config.js', './js/chart.umd.js', './js/supabase.js', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

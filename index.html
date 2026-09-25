@@ -18,7 +18,7 @@
   --bg:#EDF0F5; --surface:#FFFFFF; --surface-2:#F4F6FA; --ink:#17202D; --ink-2:#556174; --ink-3:#8A93A3; --line:#DDE2EA;
   --brand:#2C44B8; --brand-soft:#E5E9FA; --on-brand:#FFFFFF;
   --in:#0E7A57; --in-soft:#E1F3EA; --out:#C0344A; --out-soft:#FBE7EA; --warn:#935C00; --warn-soft:#FBEFD3;
-  --rafael:#2C44B8; --thayna:#93409E;
+  --rafael:#2C44B8; --thayna:#93409E; --res:#0B6B5C;
   --shadow:0 1px 2px rgba(23,32,45,.05),0 10px 30px rgba(23,32,45,.07);
   --r-xl:26px; --r-lg:18px; --r-md:13px;
   --nav-h:66px;
@@ -31,14 +31,14 @@
     --bg:#0E1219; --surface:#171D27; --surface-2:#1E2532; --ink:#E8ECF3; --ink-2:#A6B0C0; --ink-3:#7A8496; --line:#2A3342;
     --brand:#5C73E6; --brand-soft:#232C4A; --on-brand:#FFFFFF;
     --in:#3DC291; --in-soft:#15302A; --out:#F07586; --out-soft:#3A1D25; --warn:#E6B04C; --warn-soft:#3A2E14;
-    --rafael:#7F92F0; --thayna:#D18ADB; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.25); color-scheme:dark;
+    --rafael:#7F92F0; --thayna:#D18ADB; --res:#1C7F6D; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.25); color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --bg:#0E1219; --surface:#171D27; --surface-2:#1E2532; --ink:#E8ECF3; --ink-2:#A6B0C0; --ink-3:#7A8496; --line:#2A3342;
   --brand:#5C73E6; --brand-soft:#232C4A; --on-brand:#FFFFFF;
   --in:#3DC291; --in-soft:#15302A; --out:#F07586; --out-soft:#3A1D25; --warn:#E6B04C; --warn-soft:#3A2E14;
-  --rafael:#7F92F0; --thayna:#D18ADB; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.25); color-scheme:dark;
+  --rafael:#7F92F0; --thayna:#D18ADB; --res:#1C7F6D; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.25); color-scheme:dark;
 }
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 html{scroll-padding-top:env(safe-area-inset-top,0px);background:var(--bg)}
@@ -301,6 +301,13 @@ input[type="date"].input,input[type="time"].input{min-width:0}
 .sync::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ink-3)}
 .sync.ok::before{background:var(--in)} .sync.syncing::before{background:var(--brand)}
 .sync.pending::before,.sync.offline::before{background:var(--warn)} .sync.error::before{background:var(--out)}
+.hero.res{background:var(--res)}
+.res-card{border:0;text-align:left;width:100%;display:flex;flex-direction:column;gap:8px;color:var(--ink);font:inherit}
+.res-card:hover{background:var(--surface-2)}
+.res-card .val{font:700 20px var(--font-num);font-variant-numeric:tabular-nums}
+.bar.res i{background:var(--res)}
+.tx-ic.res-in{background:var(--in-soft)} .tx-ic.res-out{background:var(--out-soft)} .tx-ic.res-yield{background:var(--brand-soft)}
+.btn-yield{min-height:56px;border-radius:var(--r-md);border:0;font:700 17px var(--font-ui);background:var(--brand-soft);color:var(--brand)}
 /* ============ DESKTOP ============ */
 @media (min-width:600px){
   .person-grid{grid-template-columns:repeat(3,1fr)}
@@ -462,6 +469,8 @@ function defaultData() {
     budgets: {},          // { "Alimentação": 1500 }
     monthlyBudget: 0,
     budgetsUpdatedAt: null,
+    reserves: [],         // [{ id, name, goal, createdAt, updatedAt }]
+    reserveMoves: [],     // [{ id, reserveId, kind: in|out|yield, amount, date, fromAccount, user, createdAt, updatedAt }]
     deleted: {}           // lápides { id: dataExclusão } para sincronização manual entre aparelhos
   };
 }
@@ -473,6 +482,8 @@ function validTx(t) {
     typeof t.amount === 'number' && isFinite(t.amount) && t.amount >= 0 &&
     typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date);
 }
+function validRes(r) { return r && typeof r.id === 'string' && typeof r.name === 'string'; }
+function validRmv(m) { return m && typeof m.id === 'string' && typeof m.reserveId === 'string' && ['in', 'out', 'yield'].includes(m.kind) && typeof m.amount === 'number' && isFinite(m.amount) && m.amount >= 0 && /^\d{4}-\d{2}-\d{2}$/.test(m.date || ''); }
 function migrate(d) {
   const base = defaultData();
   if (!d || typeof d !== 'object') return base;
@@ -485,6 +496,8 @@ function migrate(d) {
   out.transactions = Array.isArray(d.transactions) ? d.transactions.filter(validTx) : [];
   out.recurrences = Array.isArray(d.recurrences) ? d.recurrences.filter(r => r && r.id && FREQS[r.frequency] && r.template) : [];
   out.budgets = d.budgets && typeof d.budgets === 'object' ? d.budgets : {};
+  out.reserves = Array.isArray(d.reserves) ? d.reserves.filter(validRes) : [];
+  out.reserveMoves = Array.isArray(d.reserveMoves) ? d.reserveMoves.filter(validRmv) : [];
   out.deleted = d.deleted && typeof d.deleted === 'object' ? d.deleted : {};
   out.monthlyBudget = Number(d.monthlyBudget) || 0;
   out.app = APP_ID; out.schema = 1;
@@ -727,8 +740,10 @@ const Calc = {
   expense(list) { return U.round2(list.reduce((s, t) => s + (t.type === 'expense' ? t.amount : 0), 0)); },
   balance(list) { return U.round2(Calc.income(list) - Calc.expense(list)); },
   /** Saldo acumulado de tudo que já aconteceu (parcelas futuras ficam de fora). */
-  currentBalance() { const t = U.today(); return Calc.balance(S.transactions.filter(x => x.date <= t)); },
-  balanceBefore(date) { return Calc.balance(S.transactions.filter(x => x.date < date)); },
+  currentBalance() { const t = U.today(); return U.round2(Calc.balance(S.transactions.filter(x => x.date <= t)) + Calc.resDelta(m => m.date <= t)); },
+  balanceBefore(date) { return U.round2(Calc.balance(S.transactions.filter(x => x.date < date)) + Calc.resDelta(m => m.date < date)); },
+  /** Efeito das reservas no saldo da conta (só movimentações marcadas "da conta"). */
+  resDelta(pred) { return S.reserveMoves.filter(pred).reduce((s, m) => s + Res.accountDelta(m), 0); },
   byCategory(list, type = 'expense') {
     const map = new Map(); let total = 0;
     for (const t of list) {
@@ -778,6 +793,62 @@ const Budget = {
     if (st.level === 'near') return 'Perto do limite: restam ' + U.money(st.left) + '.';
     return Math.round(st.pct * 100) + '% utilizado. Restam ' + U.money(st.left) + '.';
   }
+};
+
+/* =========================================================
+   RESERVAS: acompanhamento à parte, fora de entradas/saídas.
+   "Guardar" com fromAccount tira do saldo da conta (não é gasto);
+   "Retirar" com fromAccount devolve ao saldo (não é entrada);
+   "Rendimento" só aumenta a reserva.
+   ========================================================= */
+const RES_KINDS = { in: 'Guardar', out: 'Retirar', yield: 'Rendimento' };
+const RES_DONE = { in: 'Guardado', out: 'Retirado', yield: 'Rendimento' };
+const Res = {
+  list() { return S.reserves.slice().sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')); },
+  get(id) { return S.reserves.find(r => r.id === id); },
+  moves(id) { return S.reserveMoves.filter(m => m.reserveId === id).sort(byDateDesc); },
+  sign(m) { return m.kind === 'out' ? -1 : 1; },
+  balance(id, exceptMoveId) { return U.round2(S.reserveMoves.filter(m => m.reserveId === id && m.id !== exceptMoveId).reduce((s, m) => s + Res.sign(m) * m.amount, 0)); },
+  total() { return U.round2(S.reserves.reduce((s, r) => s + Res.balance(r.id), 0)); },
+  accountDelta(m) { if (!m.fromAccount || m.kind === 'yield') return 0; return m.kind === 'in' ? -m.amount : m.amount; },
+  netIn(from, to) { return U.round2(S.reserveMoves.filter(m => m.date >= from && m.date <= to && m.kind !== 'yield').reduce((s, m) => s + Res.sign(m) * m.amount, 0)); },
+  checkName(raw, exceptId) {
+    const name = String(raw || '').trim().replace(/\s+/g, ' ');
+    if (!name) return { error: 'Dê um nome para a reserva. Ex.: Emergência, Viagem.' };
+    if (name.length > 40) return { error: 'Use um nome com até 40 caracteres.' };
+    if (S.reserves.some(r => r.id !== exceptId && U.norm(r.name) === U.norm(name))) return { error: 'Já existe uma reserva com esse nome.' };
+    return { name };
+  },
+  add(rawName, goal) {
+    const c = Res.checkName(rawName); if (c.error) return c;
+    const now = U.nowISO(); const r = { id: U.uid(), name: c.name, goal: goal > 0 ? U.round2(goal) : 0, createdAt: now, updatedAt: now };
+    S.reserves.push(r); persist(); return { ok: r };
+  },
+  update(id, rawName, goal) {
+    const r = Res.get(id); if (!r) return { error: 'Reserva não encontrada.' };
+    const c = Res.checkName(rawName, id); if (c.error) return c;
+    Object.assign(r, { name: c.name, goal: goal > 0 ? U.round2(goal) : 0, updatedAt: U.nowISO() }); persist(); return { ok: r };
+  },
+  remove(id) { S.reserveMoves = S.reserveMoves.filter(m => m.reserveId !== id); S.reserves = S.reserves.filter(r => r.id !== id); persist(); },
+  validateMove(d, raw, editId) {
+    if (String(raw ?? '').trim() === '' || typeof d.amount !== 'number' || isNaN(d.amount)) return 'Informe o valor.';
+    if (d.amount < 0) return 'O valor não pode ser negativo.';
+    if (d.amount === 0) return 'O valor precisa ser maior que zero.';
+    if (!d.date) return 'Informe a data.';
+    const bal = Res.balance(d.reserveId, editId);
+    if (bal + (d.kind === 'out' ? -d.amount : d.amount) < -0.001) return d.kind === 'out' ? `A reserva tem só ${U.money(bal)}. Não dá para retirar mais do que isso.` : 'Com esse valor, a reserva ficaria negativa por causa das retiradas já feitas.';
+    return null;
+  },
+  addMove(d) {
+    const now = U.nowISO();
+    const m = { id: U.uid(), reserveId: d.reserveId, kind: d.kind, amount: U.round2(d.amount), date: d.date, fromAccount: d.kind === 'yield' ? false : !!d.fromAccount, user: d.user || D.currentUser || USERS[0], createdAt: now, updatedAt: now };
+    S.reserveMoves.push(m); persist(); return m;
+  },
+  updateMove(id, d) {
+    const m = S.reserveMoves.find(x => x.id === id); if (!m) return null;
+    Object.assign(m, { kind: d.kind, amount: U.round2(d.amount), date: d.date, fromAccount: d.kind === 'yield' ? false : !!d.fromAccount, updatedAt: U.nowISO() }); persist(); return m;
+  },
+  removeMove(id) { S.reserveMoves = S.reserveMoves.filter(m => m.id !== id); persist(); }
 };
 
 /* =========================================================
@@ -917,6 +988,7 @@ const ICON = {
   moon: sv('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>'),
   sun: sv('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
   lock: sv('<rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>'),
+  piggy: sv('<path d="M19 9.5c1 .6 2 1.8 2 3.5 0 1-.4 1.8-1 2.5V19h-3v-1.5h-5V19H9v-2.1C6.6 15.9 5 13.8 5 11.5 5 8 8.1 5.5 12 5.5c1.6 0 3 .3 4.2 1L19 5v4.5z"/><circle cx="15.5" cy="10.5" r=".6"/><path d="M2.5 11.5c0 1.2.9 2 2.5 2"/>'),
   device: sv('<rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18h2"/>')
 };
 
@@ -924,7 +996,7 @@ const ICON = {
    NAVEGAÇÃO
    ========================================================= */
 let view = 'home';
-const SUBVIEWS = { charts: 'Gráficos', calendar: 'Calendário', couple: 'Finanças do casal', budgets: 'Orçamentos', recurrences: 'Recorrências', catmanage: 'Gerenciar categorias', settings: 'Configurações' };
+const SUBVIEWS = { reserves: 'Reservas', reserve: 'Reserva', charts: 'Gráficos', calendar: 'Calendário', couple: 'Finanças do casal', budgets: 'Orçamentos', recurrences: 'Recorrências', catmanage: 'Gerenciar categorias', settings: 'Configurações' };
 function go(v) { view = v; destroyCharts(); render(); window.scrollTo(0, 0); }
 
 function renderNav() {
@@ -941,7 +1013,7 @@ function renderNav() {
     <div class="logo">Finanças<small>Rafael e Thayná</small></div>
     <button class="btn btn-primary btn-block side-new" data-act="new">${ICON.plus} Novo lançamento</button>
     ${link('home', ICON.home, 'Início')}${link('moves', ICON.list, 'Movimentações')}${link('cats', ICON.pie, 'Categorias')}
-    ${link('charts', ICON.chart, 'Gráficos')}${link('calendar', ICON.cal, 'Calendário')}${link('couple', ICON.people, 'Finanças do casal')}
+    ${link('reserves', ICON.piggy, 'Reservas')}${link('charts', ICON.chart, 'Gráficos')}${link('calendar', ICON.cal, 'Calendário')}${link('couple', ICON.people, 'Finanças do casal')}
     ${link('budgets', ICON.target, 'Orçamentos')}${link('recurrences', ICON.repeat, 'Recorrências')}${link('catmanage', ICON.tag, 'Gerenciar categorias')}
     ${link('settings', ICON.gear, 'Configurações')}
     <div style="flex:1"></div>
@@ -952,7 +1024,8 @@ function render() {
   renderNav();
   destroyCharts();
   const main = document.getElementById('main');
-  const views = { home: viewHome, moves: viewMoves, cats: viewCats, more: viewMore, charts: viewCharts, calendar: viewCalendar, couple: viewCouple, budgets: viewBudgets, recurrences: viewRecurrences, catmanage: viewCatManage, settings: viewSettings };
+  if (view === 'reserve' && !Res.get(resId)) view = 'reserves';
+  const views = { reserves: viewReserves, reserve: viewReserve, home: viewHome, moves: viewMoves, cats: viewCats, more: viewMore, charts: viewCharts, calendar: viewCalendar, couple: viewCouple, budgets: viewBudgets, recurrences: viewRecurrences, catmanage: viewCatManage, settings: viewSettings };
   main.innerHTML = `<div class="container">${storageBanner()}${(views[view] || viewHome)()}</div>`;
   afterRender();
 }
@@ -1035,6 +1108,8 @@ function insights(list, r) {
   if (cats[1]) out.push([cats[1].icon, `${cats[1].name} representa ${Math.round(cats[1].pct * 100)}% dos seus gastos ${r.noun === 'do mês' ? 'neste mês' : 'no período'}.`]);
   const byP = Calc.byPerson(list);
   for (const u of USERS) if (byP[u].count) out.push(['📝', `${u} realizou ${byP[u].count} ${byP[u].count === 1 ? 'lançamento' : 'lançamentos'} ${r.noun === 'do mês' ? 'neste mês' : 'no período'}.`]);
+  const netRes = Res.netIn(r.from, r.to);
+  if (netRes > 0) out.push(['🐷', `Vocês guardaram ${U.money(netRes)} nas reservas ${r.noun === 'do mês' ? 'neste mês' : 'no período'}.`]);
   if (exp.length) {
     const big = exp.reduce((a, b) => (b.amount > a.amount ? b : a));
     out.push(['🔎', `Maior gasto: ${big.description || big.category}, ${U.money(big.amount)} em ${U.short(big.date)}.`]);
@@ -1082,6 +1157,9 @@ function viewHome() {
     ${gb ? `<section class="panel"><div class="panel-head"><h2>Orçamento do mês</h2><button class="link" data-act="nav" data-view="budgets">Ajustar</button></div>
       <div class="bar ${gb.level}" style="height:10px"><i style="width:${Math.min(100, gb.pct * 100)}%"></i></div>
       <p class="status ${gb.level}" style="margin:8px 0 0">${U.money(exp)} / ${U.money(S.monthlyBudget)}. ${Budget.statusText(gb)}</p></section>` : ''}
+    ${S.reserves.length ? (() => { const net = Res.netIn(r.from, r.to); return `<section class="panel"><div class="panel-head"><h2>Reservas</h2><button class="link" data-act="nav" data-view="reserves">Abrir</button></div>
+      <div class="row between"><span class="muted small">Guardado, fora do saldo</span><b class="num" style="font-size:20px">${U.money(Res.total())}</b></div>
+      ${net ? `<p class="small muted" style="margin:6px 0 0">${net > 0 ? 'Guardado' : 'Retirado'} ${r.noun === 'do mês' ? 'neste mês' : 'no período'}: ${U.money(Math.abs(net))}</p>` : ''}</section>`; })() : ''}
     <div class="quick">
       <button class="btn-in" data-act="new-type" data-type="income">+ Entrada</button>
       <button class="btn-out" data-act="new-type" data-type="expense">− Saída</button>
@@ -1196,6 +1274,7 @@ function viewMore() {
   return `<header class="topbar"><h1 class="page-title">Mais</h1>${userPill()}</header>
   <div class="stack">
     <div class="menu">
+      ${item('reserves', ICON.piggy, 'Reservas', S.reserves.length ? U.money(Res.total()) + ' guardados, fora do saldo' : 'Dinheiro guardado, fora do saldo')}
       ${item('charts', ICON.chart, 'Gráficos', 'Categorias, entradas x saídas, saldo e pessoas')}
       ${item('calendar', ICON.cal, 'Calendário', 'Entradas e saídas dia a dia')}
       ${item('couple', ICON.people, 'Finanças do casal', 'Rafael, Thayná e o total dos dois')}
@@ -1208,6 +1287,97 @@ function viewMore() {
     </div>
     <div class="note">${ICON.device.replace('<svg', '<svg width="16" height="16"')} ${dataNote()}</div>
   </div>`;
+}
+
+/* =========================================================
+   TELAS: RESERVAS
+   ========================================================= */
+let resId = null, M = null;
+function resCard(r) {
+  const bal = Res.balance(r.id); const mv = Res.moves(r.id);
+  const pct = r.goal ? Math.min(1, Math.max(0, bal / r.goal)) : 0;
+  return `<button class="panel res-card" data-act="res-open" data-id="${r.id}">
+    <span class="row between"><b style="font-size:17px">${U.esc(r.name)}</b><span class="val">${U.money(bal)}</span></span>
+    ${r.goal ? `<span class="bar res" style="height:8px"><i style="width:${pct * 100}%"></i></span><span class="small muted">${Math.round(pct * 100)}% da meta de ${U.money(r.goal)}${bal >= r.goal ? '. Meta atingida!' : `. Faltam ${U.money(r.goal - bal)}.`}</span>` : ''}
+    <span class="small muted">${mv.length ? `Última movimentação em ${U.br(mv[0].date)}` : 'Sem movimentações ainda'}</span>
+  </button>`;
+}
+function viewReserves() {
+  const list = Res.list();
+  return `<header class="topbar"><div>${subHeader('Reservas')}</div></header>
+  <div class="stack">
+    <section class="hero res"><div class="hero-label"><span>Total guardado</span><span>fora do saldo</span></div>
+      <div class="hero-big">${U.money(Res.total())}</div>
+      <div class="hero-note">Esse valor não entra no saldo da conta.</div></section>
+    ${list.length ? list.map(resCard).join('') : '<div class="panel empty"><b>Nenhuma reserva ainda</b>Crie uma para acompanhar o dinheiro guardado: emergência, viagem, carro…</div>'}
+    <button class="btn btn-primary btn-block" data-act="res-new">+ Nova reserva</button>
+    <p class="small muted" style="margin:0">Guardar com "Tirar do saldo da conta" ligado faz o valor sair do saldo, sem contar como gasto. Retirar pode devolver ao saldo, sem contar como entrada. Rendimento só aumenta a reserva.</p>
+  </div>`;
+}
+function viewReserve() {
+  const r = Res.get(resId); const bal = Res.balance(r.id); const mv = Res.moves(r.id);
+  const pct = r.goal ? Math.min(1, Math.max(0, bal / r.goal)) : 0;
+  const row = m => `<button class="tx" data-act="rmv-open" data-id="${m.id}">
+    <span class="tx-ic res-${m.kind}" aria-hidden="true">${m.kind === 'in' ? '＋' : m.kind === 'out' ? '−' : '📈'}</span>
+    <span class="tx-main"><span class="tx-desc">${RES_DONE[m.kind]}</span>
+      <span class="tx-meta"><span>${U.dayLabel(m.date)}</span><span class="who who-${U.userKey(m.user)}">${U.esc(m.user)}</span>${m.fromAccount ? `<span class="tag">${m.kind === 'in' ? 'saiu da conta' : 'voltou para a conta'}</span>` : ''}</span></span>
+    <span class="tx-amt ${m.kind === 'out' ? 'expense' : 'income'}">${m.kind === 'out' ? '−' : '+'}${U.money(m.amount)}</span></button>`;
+  return `<header class="topbar"><div><button class="back" data-act="nav" data-view="reserves">${ICON.left.replace('<svg', '<svg width="20" height="20"')} Reservas</button><h1 class="page-title">${U.esc(r.name)}</h1></div>
+      <button class="link" data-act="res-edit" data-id="${r.id}">Editar</button></header>
+  <div class="stack">
+    <section class="hero res"><div class="hero-label"><span>Saldo da reserva</span><span>fora do saldo</span></div>
+      <div class="hero-big">${U.money(bal)}</div>
+      ${r.goal ? `<div class="meter"><i style="width:${pct * 100}%"></i></div><div class="hero-note">${Math.round(pct * 100)}% da meta de ${U.money(r.goal)}</div>` : '<div class="hero-note">Sem meta definida. Toque em Editar para criar uma.</div>'}</section>
+    <div class="quick"><button class="btn-in" data-act="rmv-new" data-kind="in">+ Guardar</button><button class="btn-out" data-act="rmv-new" data-kind="out">− Retirar</button></div>
+    <button class="btn-yield" data-act="rmv-new" data-kind="yield">📈 Registrar rendimento</button>
+    ${mv.length ? `<h2 class="section-h" style="margin:4px 0 0">Movimentações</h2><div class="txgroup">${mv.map(row).join('')}</div>` : '<div class="panel empty"><b>Nada guardado ainda</b>Toque em Guardar para registrar o primeiro valor.</div>'}
+  </div>`;
+}
+function openReserveForm(id) {
+  const r = id ? Res.get(id) : null;
+  openSheet({
+    title: r ? 'Editar reserva' : 'Nova reserva',
+    body: `<label class="f">Nome<input class="input" id="rs-name" maxlength="40" placeholder="Ex.: Emergência" value="${r ? U.esc(r.name) : ''}" autocomplete="off"></label>
+      <label class="f">Meta (opcional)<input class="input" id="rs-goal" inputmode="decimal" placeholder="Ex.: 10.000,00" value="${r && r.goal ? U.plain(r.goal) : ''}"></label>
+      <div id="rs-err"></div>`,
+    foot: `<div class="btn-col"><button class="btn btn-primary btn-block" data-act="res-save" data-id="${r ? r.id : ''}">${r ? 'Salvar' : 'Criar reserva'}</button>${r ? `<button class="btn btn-danger btn-block" data-act="res-del" data-id="${r.id}">Excluir reserva</button>` : ''}</div>`,
+    onMount: w => { if (!r) setTimeout(() => w.querySelector('#rs-name').focus(), 60); }
+  });
+}
+function moveHint() {
+  if (!M) return '';
+  if (M.kind === 'yield') return 'Rendimento aumenta só a reserva. O saldo da conta não muda.';
+  if (M.kind === 'in') return M.acct ? 'O valor sai do saldo da conta e vai para a reserva. Não conta como gasto.' : 'Só a reserva aumenta. Use para dinheiro que já estava guardado fora do app.';
+  return M.acct ? 'O valor sai da reserva e volta para o saldo da conta. Não conta como entrada.' : 'Só a reserva diminui. O saldo da conta não muda.';
+}
+function moveBody() {
+  return `<div class="seg type" role="group" aria-label="Tipo">${Object.entries(RES_KINDS).map(([k, l]) => `<button data-act="rmv-kind" data-v="${k}" aria-pressed="${M.kind === k}">${l}</button>`).join('')}</div>
+    <div class="amount-box ${M.kind === 'out' ? 'expense' : 'income'}" id="rm-box"><label class="fl" for="rm-amount" style="margin:0">Valor</label>
+      <div class="amount-row"><span>R$</span><input id="rm-amount" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${U.esc(M.raw)}"></div>
+      <div class="amount-hint" id="rm-hint">${M.kind === 'out' ? 'Disponível: ' + U.money(Res.balance(M.reserveId, M.editId)) : ''}</div></div>
+    <label class="f">Data<input class="input" type="date" id="rm-date" value="${M.date}"></label>
+    <div id="rm-acct">${M.kind === 'yield' ? '' : `<label class="check"><input type="checkbox" id="rm-acct-cb"${M.acct ? ' checked' : ''}> ${M.kind === 'in' ? 'Tirar do saldo da conta' : 'Voltar para o saldo da conta'}</label>`}</div>
+    <p class="small muted" style="margin:0" id="rm-note">${moveHint()}</p>
+    <div id="rm-err"></div>`;
+}
+function openMoveForm(reserveId, kind, editId) {
+  const m = editId ? S.reserveMoves.find(x => x.id === editId) : null;
+  M = { reserveId, kind: m ? m.kind : kind, raw: m ? U.plain(m.amount) : '', date: m ? m.date : U.today(), acct: m ? m.fromAccount || m.kind === 'yield' : true, editId: editId || null };
+  if (M.kind === 'yield' && !m) M.acct = true;
+  openSheet({
+    title: m ? 'Editar movimentação' : Res.get(reserveId).name,
+    body: moveBody(),
+    foot: `<div class="btn-col"><button class="btn btn-primary btn-block" data-act="rmv-save">Salvar</button>${m ? `<button class="btn btn-danger btn-block" data-act="rmv-del" data-id="${m.id}">Excluir</button>` : ''}</div>`,
+    onMount: w => { w.classList.add('rmform'); if (!m) setTimeout(() => { const a = w.querySelector('#rm-amount'); if (a) a.focus(); }, 80); },
+    onClose: () => { M = null; }
+  });
+}
+function refreshMoveForm() {
+  const s = topSheet(); if (!s || !M) return;
+  const body = s.wrap.querySelector('.sheet-body');
+  M.raw = (s.wrap.querySelector('#rm-amount') || {}).value ?? M.raw;
+  M.date = (s.wrap.querySelector('#rm-date') || {}).value || M.date;
+  body.innerHTML = moveBody();
 }
 
 /* =========================================================
@@ -1254,12 +1424,14 @@ function balanceSeries(r) {
   const labels = [], data = [];
   let running = Calc.balanceBefore(r.from);
   const byDay = Calc.byDay(Calc.inRange(S.transactions, r.from, end));
+  const rd = {}; for (const m of S.reserveMoves) if (m.date >= r.from && m.date <= end) rd[m.date] = (rd[m.date] || 0) + Res.accountDelta(m);
   const days = Math.round((U.parse(end) - U.parse(r.from)) / 864e5) + 1;
   if (days > 62) {
     let d = r.from;
     let mk = d.slice(0, 7);
     while (d <= end) {
       const x = byDay[d]; if (x) running += x.income - x.expense;
+      if (rd[d]) running += rd[d];
       const nd = U.addDays(d, 1);
       if (nd.slice(0, 7) !== mk || nd > end) { const mi = Number(mk.slice(5)) - 1; labels.push(MONTHS_S[mi] + '/' + mk.slice(2, 4)); data.push(U.round2(running)); mk = nd.slice(0, 7); }
       d = nd;
@@ -1267,6 +1439,7 @@ function balanceSeries(r) {
   } else {
     for (let d = r.from; d <= end; d = U.addDays(d, 1)) {
       const x = byDay[d]; if (x) running += x.income - x.expense;
+      if (rd[d]) running += rd[d];
       labels.push(U.short(d)); data.push(U.round2(running));
     }
   }
@@ -1764,6 +1937,11 @@ function mergeData(inc) {
     else { const newer = (r.updatedAt || '') > (cur.updatedAt || '') ? r : cur; newer.nextIndex = Math.max(r.nextIndex, cur.nextIndex); rmap.set(r.id, newer); }
   }
   S.recurrences = [...rmap.values()];
+  for (const key of ['reserves', 'reserveMoves']) {
+    const m = new Map(S[key].map(x => [x.id, x]));
+    for (const x of inc[key] || []) { const cur = m.get(x.id); if (!cur || (x.updatedAt || '') > (cur.updatedAt || '')) m.set(x.id, x); }
+    S[key] = [...m.values()];
+  }
   for (const type of ['expense', 'income']) {
     for (const c of inc.categories[type]) {
       const mine = Cat.find(type, c.name);
@@ -2037,7 +2215,7 @@ const A = {
   'demo-on': () => loadDemo(),
   'demo-off': () => removeDemo(),
   'wipe': async () => {
-    const v1 = await ask({ title: 'Apagar todos os dados', message: `Isso remove ${S.transactions.length} lançamentos, categorias personalizadas, orçamentos e recorrências ${Cloud.on ? 'da nuvem, para Rafael e Thayná, em todos os aparelhos' : 'deste aparelho'}.`, actions: [{ label: 'Fazer backup antes', value: 'backup', primary: true }, { label: 'Continuar sem backup', value: 'go', danger: true }] });
+    const v1 = await ask({ title: 'Apagar todos os dados', message: `Isso remove ${S.transactions.length} lançamentos, categorias personalizadas, orçamentos, reservas e recorrências ${Cloud.on ? 'da nuvem, para Rafael e Thayná, em todos os aparelhos' : 'deste aparelho'}.`, actions: [{ label: 'Fazer backup antes', value: 'backup', primary: true }, { label: 'Continuar sem backup', value: 'go', danger: true }] });
     if (v1 === 'backup') { await doBackup(); return; }
     if (v1 !== 'go') return;
     openSheet({ title: 'Confirmação final', body: '<p style="margin:0">Digite <b>APAGAR</b> para confirmar. Não há como desfazer.</p><input class="input" id="wipe-in" autocomplete="off" autocapitalize="characters"><div id="wipe-err"></div>', foot: '<button class="btn btn-danger btn-block" data-act="wipe-go">Apagar tudo</button>' });
@@ -2048,6 +2226,43 @@ const A = {
     S = defaultData(); persist(); closeAllSheets(); render(); toast('Todos os dados foram apagados');
   },
   'account': () => go('settings'),
+  'res-new': () => openReserveForm(null),
+  'res-edit': el => openReserveForm(el.dataset.id),
+  'res-open': el => { resId = el.dataset.id; go('reserve'); },
+  'res-save': el => {
+    const w = topSheet().wrap; const rawGoal = w.querySelector('#rs-goal').value.trim(); const goal = rawGoal ? U.parseAmount(rawGoal) : 0;
+    const err = m => { w.querySelector('#rs-err').innerHTML = `<div class="form-error" role="alert">${U.esc(m)}</div>`; };
+    if (rawGoal && (isNaN(goal) || goal < 0)) return err('Meta inválida. Use o formato 10.000,00.');
+    const res = el.dataset.id ? Res.update(el.dataset.id, w.querySelector('#rs-name').value, goal) : Res.add(w.querySelector('#rs-name').value, goal);
+    if (res.error) return err(res.error);
+    closeAllSheets();
+    if (!el.dataset.id) { resId = res.ok.id; go('reserve'); } else render();
+    toast(el.dataset.id ? 'Reserva atualizada' : 'Reserva criada');
+  },
+  'res-del': async el => {
+    const r = Res.get(el.dataset.id); const n = Res.moves(r.id).length;
+    const fromAcct = Res.moves(r.id).some(m => m.fromAccount);
+    const v = await ask({ title: 'Excluir reserva', message: `Excluir "${U.esc(r.name)}"${n ? ` e as ${n} movimentações` : ''}?${fromAcct ? ' O que foi tirado ou devolvido à conta deixa de ser considerado, e o saldo da conta é recalculado.' : ''} Não dá para desfazer.`, actions: [{ label: 'Excluir reserva', value: 'yes', danger: true }] });
+    if (!v) return; Res.remove(r.id); closeAllSheets(); go('reserves'); toast('Reserva excluída');
+  },
+  'rmv-new': el => openMoveForm(resId, el.dataset.kind),
+  'rmv-open': el => openMoveForm(resId, null, el.dataset.id),
+  'rmv-kind': el => { M.kind = el.dataset.v; if (M.kind !== 'yield' && M.acct === undefined) M.acct = true; refreshMoveForm(); },
+  'rmv-save': () => {
+    const w = topSheet().wrap; M.raw = w.querySelector('#rm-amount').value; M.date = w.querySelector('#rm-date').value;
+    const d = { reserveId: M.reserveId, kind: M.kind, amount: U.parseAmount(M.raw), date: M.date, fromAccount: M.acct };
+    const err = Res.validateMove(d, M.raw, M.editId);
+    if (err) { w.querySelector('#rm-err').innerHTML = `<div class="form-error" role="alert">${U.esc(err)}</div>`; return; }
+    const editing = !!M.editId;
+    if (editing) Res.updateMove(M.editId, d); else Res.addMove(d);
+    closeAllSheets(); render(); toast(editing ? 'Movimentação atualizada' : (d.kind === 'in' ? 'Valor guardado' : d.kind === 'out' ? 'Valor retirado' : 'Rendimento registrado'));
+  },
+  'rmv-del': async el => {
+    const m = S.reserveMoves.find(x => x.id === el.dataset.id); if (!m) return;
+    if (m.kind !== 'out' && Res.balance(m.reserveId, m.id) < -0.001) { toast('Exclua antes as retiradas que dependem deste valor.'); return; }
+    const v = await ask({ title: 'Excluir movimentação', message: `Excluir "${RES_DONE[m.kind]}" de ${U.money(m.amount)} em ${U.br(m.date)}?${m.fromAccount ? ' O saldo da conta é recalculado.' : ''}`, actions: [{ label: 'Excluir', value: 'yes', danger: true }] });
+    if (!v) return; Res.removeMove(m.id); closeAllSheets(); render(); toast('Movimentação excluída');
+  },
   'cloud-pick': el => { if (!pendingUser) return; D.people = Object.assign({}, D.people, { [pendingUser.id]: el.dataset.v }); saveDevice(); const u = pendingUser; pendingUser = null; Cloud.login(u); },
   'cloud-rename': () => { if (!Cloud.user) return; const people = Object.assign({}, D.people); delete people[Cloud.user.id]; D.people = people; saveDevice(); pickPerson(Cloud.user); },
   'sync-now': async () => { await Cloud.pull(); await Cloud.push(); render(); toast(Cloud.error || 'Sincronizado'); },
@@ -2094,12 +2309,18 @@ document.addEventListener('input', e => {
       case 'f-card': F.card = el.value; return;
     }
   }
+  if (M && el.closest('.rmform')) {
+    if (el.id === 'rm-amount') { M.raw = el.value; return; }
+    if (el.id === 'rm-date') { M.date = el.value; return; }
+  }
   if (el.id === 'm-q') { MF.q = el.value; refreshMoves(); return; }
   if (el.dataset.mf && (el.dataset.mf === 'min' || el.dataset.mf === 'max')) { MF[el.dataset.mf] = el.value; refreshMoves(); }
 });
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.id === 'file-in') { onFile(el.files[0]); return; }
+  if (M && el.id === 'rm-acct-cb') { M.acct = el.checked; const n = document.getElementById('rm-note'); if (n) n.textContent = moveHint(); return; }
+  if (M && el.id === 'rm-date') { M.date = el.value; return; }
   if (F && el.closest('.txform')) {
     if (el.id === 'f-inst') { F.installments = Number(el.value); F.current = Math.min(F.current, F.installments); refreshForm(['credit', 'rec']); return; }
     if (el.id === 'f-cur') { F.current = Number(el.value); refreshForm(['credit']); return; }
@@ -2162,6 +2383,7 @@ function hash53(str) {
 }
 const fp = v => hash53(stable(v));
 const clone = v => JSON.parse(JSON.stringify(v));
+const kindOfRow = id => id.startsWith('tx_') ? 'tx' : id.startsWith('rec_') ? 'rec' : id.startsWith('res_') ? 'res' : id.startsWith('rmv_') ? 'rmv' : 'rec';
 function configOf(s) { return { categories: s.categories, budgets: s.budgets, monthlyBudget: s.monthlyBudget, budgetsUpdatedAt: s.budgetsUpdatedAt || null }; }
 const EMAILS_SET = !!(CFG && CFG.emails && Object.values(CFG.emails).some(v => v && !/exemplo/i.test(v)));
 function nameForEmail(email) {
@@ -2216,13 +2438,15 @@ const Cloud = {
     const cur = new Map();
     for (const t of S.transactions) cur.set('tx_' + t.id, ['tx', t]);
     for (const r of S.recurrences) cur.set('rec_' + r.id, ['rec', r]);
+    for (const r of S.reserves) cur.set('res_' + r.id, ['res', r]);
+    for (const m of S.reserveMoves) cur.set('rmv_' + m.id, ['rmv', m]);
     cur.set('config', ['config', configOf(S)]);
     for (const [id, [kind, data]] of cur) {
       const f = fp(data);
       if (Cloud.known.get(id) !== f) { Cloud.pending[id] = { id, kind, data: clone(data), deleted: false, f }; Cloud.known.set(id, f); }
     }
     for (const [id, f] of Cloud.known) {
-      if (f !== DEL && !cur.has(id) && id !== 'config') { Cloud.pending[id] = { id, kind: id.startsWith('tx_') ? 'tx' : 'rec', data: {}, deleted: true, f: DEL }; Cloud.known.set(id, DEL); }
+      if (f !== DEL && !cur.has(id) && id !== 'config') { Cloud.pending[id] = { id, kind: kindOfRow(id), data: {}, deleted: true, f: DEL }; Cloud.known.set(id, DEL); }
     }
     Cloud.saveCache(); Cloud.paintStatus(); Cloud.schedulePush();
     return true;
@@ -2274,6 +2498,7 @@ const Cloud = {
     const txIdx = new Map(S.transactions.map((t, i) => [t.id, i]));
     const recIdx = new Map(S.recurrences.map((r, i) => [r.id, i]));
     const rmTx = new Set(), rmRec = new Set(); let changed = false;
+    const put = (key, id, data) => { const i = S[key].findIndex(x => x.id === id); if (i >= 0) S[key][i] = data; else S[key].push(data); };
     for (const row of rows) {
       if (Cloud.pending[row.id]) continue; // alteração local ainda não enviada tem prioridade
       const f = row.deleted ? DEL : fp(row.data);
@@ -2294,6 +2519,12 @@ const Cloud = {
           rmTx.delete(id); delete S.deleted[id];
           if (txIdx.has(id)) S.transactions[txIdx.get(id)] = row.data; else { txIdx.set(id, S.transactions.length); S.transactions.push(row.data); }
         }
+      } else if (row.kind === 'res') {
+        const id = row.id.slice(4);
+        if (row.deleted) S.reserves = S.reserves.filter(x => x.id !== id); else if (validRes(row.data)) put('reserves', id, row.data);
+      } else if (row.kind === 'rmv') {
+        const id = row.id.slice(4);
+        if (row.deleted) S.reserveMoves = S.reserveMoves.filter(x => x.id !== id); else if (validRmv(row.data)) put('reserveMoves', id, row.data);
       } else if (row.kind === 'rec') {
         const id = row.id.slice(4);
         if (row.deleted) rmRec.add(id);
@@ -2413,7 +2644,7 @@ function init() {
 }
 
 // API interna exposta para testes e depuração
-window.FinApp = { get S() { return S; }, get D() { return D; }, Cloud, U, Tx, Cat, Rec, Calc, Budget, Period, range, filterTx, searchTx, mergeData, exportJSON, exportCSV, parseBackup, render, go, setPreset, shiftPeriod, persist };
+window.FinApp = { get S() { return S; }, get D() { return D; }, Cloud, Res, U, Tx, Cat, Rec, Calc, Budget, Period, range, filterTx, searchTx, mergeData, exportJSON, exportCSV, parseBackup, render, go, setPreset, shiftPeriod, persist };
 init();
 })();
 </script>

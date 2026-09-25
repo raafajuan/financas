@@ -1,0 +1,20 @@
+FINANÇAS DE RAFAEL E THAYNÁ — versão instalável (PWA)
+
+Para instalar no celular, a pasta precisa estar publicada em HTTPS
+(o service worker e o PIN não funcionam abrindo o arquivo direto).
+Opção gratuita e simples: GitHub Pages ou Netlify Drop (arraste a pasta).
+
+1. Publique a pasta inteira.
+2. Abra o endereço no celular.
+   - iPhone (Safari): Compartilhar > Adicionar à Tela de Início.
+   - Android (Chrome): menu > Instalar app.
+3. Cada aparelho tem os próprios dados. Para juntar os dois:
+   Configurações > Fazer backup (num aparelho) > enviar o arquivo >
+   Configurações > Importar dados de outro aparelho (no outro).
+
+Estrutura:
+  index.html      app completo (HTML, CSS e JS organizados por módulo)
+  manifest.json   nome, cores e ícones do app instalado
+  sw.js           cache offline
+  js/chart.umd.js Chart.js 4.4.1 local (gráficos funcionam offline)
+  icons/          ícones 192, 512 e maskable
